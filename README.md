@@ -1,6 +1,15 @@
 <p align="center"><img src="banner.png" width="800" alt="Spotify Mini Player"></p>
 
 # Spotify Mini Player
+<p align="center">
+  <a href="https://github.com/Mc-Kaan/Spotify-Mini-Player/releases/latest"><img src="https://img.shields.io/github/v/release/Mc-Kaan/Spotify-Mini-Player?logo=github" alt="Latest release"></a>
+  <a href="https://github.com/Mc-Kaan/Spotify-Mini-Player/releases"><img src="https://img.shields.io/github/downloads/Mc-Kaan/Spotify-Mini-Player/total" alt="Downloads"></a>
+  <a href="https://github.com/Mc-Kaan/Spotify-Mini-Player/actions/workflows/build.yml"><img src="https://github.com/Mc-Kaan/Spotify-Mini-Player/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+  <img src="https://img.shields.io/badge/platform-Windows-blue" alt="Platform: Windows">
+  <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&amp;logoColor=white" alt="Python 3.12">
+  <img src="https://img.shields.io/badge/lyrics-LRCLIB-blueviolet" alt="Lyrics by LRCLIB">
+  <img src="https://img.shields.io/github/license/Mc-Kaan/Spotify-Mini-Player" alt="License: MIT">
+</p>
 
 A small, always-on-top music player window for Windows. It shows the current song's title, artist, album cover and elapsed time, and lets you control playback with previous, play/pause and next buttons.
 
