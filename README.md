@@ -59,4 +59,3 @@ The output is created at `dist/SpotifyMiniPlayer.exe`. When a tag in the form `v
 
 MIT
 
-Built with the help of Claude (Anthropic)
