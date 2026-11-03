@@ -129,7 +129,7 @@ CONFIG_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"),
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 LRCLIB = "https://lrclib.net/api"
-USER_AGENT = "SpotifyMiniPlayer/1.4 (https://github.com/Mc-Kaan/Spotify-Mini-Player)"
+USER_AGENT = "SpotifyMiniPlayer/1.5 (https://github.com/kaanrrn/Spotify-Mini-Player)"
 
 
 # ----------------------------------------------------------------------------

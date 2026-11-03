@@ -1,15 +1,14 @@
 <p align="center"><img src="banner.png" width="800" alt="Spotify Mini Player"></p>
+
 <p align="center">
-  <a href="https://github.com/Mc-Kaan/Spotify-Mini-Player/releases/latest"><img src="https://img.shields.io/github/v/release/Mc-Kaan/Spotify-Mini-Player?logo=github" alt="Latest release"></a>
-  <a href="https://github.com/Mc-Kaan/Spotify-Mini-Player/releases"><img src="https://img.shields.io/github/downloads/Mc-Kaan/Spotify-Mini-Player/total" alt="Downloads"></a>
-  <a href="https://github.com/Mc-Kaan/Spotify-Mini-Player/actions/workflows/build.yml"><img src="https://github.com/Mc-Kaan/Spotify-Mini-Player/actions/workflows/build.yml/badge.svg" alt="Build"></a>
+  <a href="https://github.com/kaanrrn/Spotify-Mini-Player/releases/latest"><img src="https://img.shields.io/github/v/release/kaanrrn/Spotify-Mini-Player?logo=github" alt="Latest release"></a>
+  <a href="https://github.com/kaanrrn/Spotify-Mini-Player/releases"><img src="https://img.shields.io/github/downloads/kaanrrn/Spotify-Mini-Player/total" alt="Downloads"></a>
+  <a href="https://github.com/kaanrrn/Spotify-Mini-Player/actions/workflows/build.yml"><img src="https://github.com/kaanrrn/Spotify-Mini-Player/actions/workflows/build.yml/badge.svg" alt="Build"></a>
   <img src="https://img.shields.io/badge/platform-Windows-blue" alt="Platform: Windows">
   <img src="https://img.shields.io/badge/python-3.12-blue?logo=python&amp;logoColor=white" alt="Python 3.12">
   <img src="https://img.shields.io/badge/lyrics-LRCLIB-blueviolet" alt="Lyrics by LRCLIB">
-  <img src="https://img.shields.io/github/license/Mc-Kaan/Spotify-Mini-Player" alt="License: MIT">
+  <img src="https://img.shields.io/github/license/kaanrrn/Spotify-Mini-Player" alt="License: MIT">
 </p>
-
-# Spotify Mini Player
 
 A small, always-on-top music player window for Windows. It shows the current song's title, artist, album cover and elapsed time, and lets you control playback with previous, play/pause and next buttons.
 
@@ -32,7 +31,7 @@ No Spotify API, Premium account or Client ID is required. The app connects to Wi
 
 ## Usage
 
-1. Download `SpotifyMiniPlayer.exe` from the [Releases](../../releases) page.
+1. Download `SpotifyMiniPlayer.exe` from the [Releases](https://github.com/kaanrrn/Spotify-Mini-Player/releases) page.
 2. Double-click it to run. Start playing a song in Spotify and it appears in the window.
 
 > Windows SmartScreen may show a warning because the exe is unsigned. Click "More info" → "Run anyway".
@@ -50,7 +49,7 @@ python mini_player.py
 
 ```
 pip install pyinstaller
-pyinstaller --onefile --noconsole --collect-submodules winsdk --name SpotifyMiniPlayer mini_player.py
+pyinstaller --onefile --noconsole --icon icon.ico --add-data "icon.ico;." --collect-submodules winsdk --collect-submodules pycaw --collect-submodules comtypes --name SpotifyMiniPlayer mini_player.py
 ```
 
 The output is created at `dist/SpotifyMiniPlayer.exe`. When a tag in the form `v*` (e.g. `v1.0.0`) is pushed to this repository, GitHub Actions builds the exe automatically and attaches it to the Release.
@@ -67,5 +66,3 @@ The output is created at `dist/SpotifyMiniPlayer.exe`. When a tag in the form `v
 ## License
 
 MIT
-
-Built with the help of Claude (Anthropic)
