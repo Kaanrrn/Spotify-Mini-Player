@@ -26,7 +26,8 @@ No Spotify API, Premium account or Client ID is required. The app connects to Wi
 - Previous, play/pause and next buttons fade in on hover and follow your mouse; clicks trigger a ripple effect, and the content slides left/right when you skip tracks
 - Settings via the gear icon in the top right: preset themes, full color customization with HEX / RGB / a color picker, window size (60%-200%), opacity, font picker, lyrics and compact mode toggles
 - Ctrl + mouse wheel resizes the window quickly
-- Theme, size, opacity, font, modes, window position and "always on top" are remembered (`%APPDATA%\SpotifyMiniPlayer\config.json`)
+- Taskbar button: shown by default (with the app icon); turn it off in the settings (Window tab) or from the right-click menu
+- Theme, size, opacity, font, modes, window position, taskbar and "always on top" are remembered (`%APPDATA%\SpotifyMiniPlayer\config.json`)
 - Works with free Spotify accounts
 
 ## Usage
@@ -56,6 +57,7 @@ The output is created at `dist/SpotifyMiniPlayer.exe`. When a tag in the form `v
 
 ## Limitations
 
+- The widget is meant to stay visible, so clicking its taskbar button does not minimize it (it restores itself right away). To close it, use the right-click menu or the taskbar button's "Close window". To hide the taskbar button completely, turn off "Show in taskbar" in the settings.
 - The volume slider controls Spotify's own volume (or the system volume if Spotify isn't playing) and uses the `pycaw` package. If it isn't installed or there is no audio device, the slider is hidden and the rest of the app keeps working.
 - Lyrics come from LRCLIB, an open lyrics service, not from Spotify. Not every song has synced lyrics, and the timing may differ from Spotify's own lyrics. An internet connection is needed to fetch them.
 - Seeking depends on Spotify supporting position changes through Windows media controls. If it doesn't, the bar snaps back.

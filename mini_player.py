@@ -12,7 +12,7 @@ Usage:
   - Click or drag on the progress bar to seek.
   - Mouse wheel over the window: volume. Ctrl + mouse wheel: resize.
   - Double-click an empty area: switch between full and compact mode.
-  - Gear icon (top right): themes, colors, size, opacity, font, lyrics.
+  - Gear icon (top right): themes, colors, size, opacity, font, lyrics, taskbar button.
   - Right-click: menu.
 
 Synced lyrics are fetched from LRCLIB (https://lrclib.net), not from Spotify.
@@ -129,7 +129,7 @@ CONFIG_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"),
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 LRCLIB = "https://lrclib.net/api"
-USER_AGENT = "SpotifyMiniPlayer/1.5 (https://github.com/kaanrrn/Spotify-Mini-Player)"
+USER_AGENT = "SpotifyMiniPlayer/1.6 (https://github.com/kaanrrn/Spotify-Mini-Player)"
 
 
 # ----------------------------------------------------------------------------
@@ -255,6 +255,55 @@ def resource_path(rel):
     """Path of a bundled file (works from source and from the PyInstaller exe)."""
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, rel)
+
+
+GWL_EXSTYLE = -20
+WS_EX_APPWINDOW = 0x00040000
+WS_EX_TOOLWINDOW = 0x00000080
+
+
+def set_app_id():
+    """Gives the process its own identity so Windows groups its taskbar button correctly."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("kaanrrn.SpotifyMiniPlayer")
+    except Exception:
+        pass
+
+
+def set_taskbar_style(root, show):
+    """Shows or hides the window's taskbar button (Windows only). Returns True on success.
+
+    A borderless (overrideredirect) window has no taskbar button by default. Windows decides
+    this from the extended window style, so we flip WS_EX_APPWINDOW / WS_EX_TOOLWINDOW.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.windll.user32
+        user32.GetParent.argtypes = [wintypes.HWND]
+        user32.GetParent.restype = wintypes.HWND
+        user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.GetWindowLongW.restype = ctypes.c_long
+        user32.SetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
+        user32.SetWindowLongW.restype = ctypes.c_long
+
+        wid = root.winfo_id()
+        hwnd = user32.GetParent(wid) or wid      # Tk wraps its toplevel in a parent window
+        style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        if show:
+            style = (style & ~WS_EX_TOOLWINDOW) | WS_EX_APPWINDOW
+        else:
+            style = (style & ~WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW
+        user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style)
+        return True
+    except Exception:
+        return False
 
 
 def load_config():
@@ -804,6 +853,7 @@ class SettingsWindow:
             ("Compact mode (double-click the player)", p.compact_var, p.on_compact_toggle),
             ("Show synced lyrics (from LRCLIB)", p.lyrics_var, p.on_lyrics_toggle),
             ("Always on top", p.topmost_var, p.apply_topmost),
+            ("Show in taskbar", p.taskbar_var, p.on_taskbar_toggle),
         ):
             tk.Checkbutton(tab, text=text, variable=var, command=cmd, bg=self.BG, fg=self.FG,
                            selectcolor=self.FIELD, activebackground=self.BG,
@@ -921,6 +971,8 @@ class SettingsWindow:
         p.auto_var.set(True)
         p.lyrics_var.set(True)
         p.compact_var.set(False)
+        p.taskbar_var.set(True)
+        p.on_taskbar_toggle()
         p.on_auto_accent_toggle()
         p.apply_modes()
         self.sync_window_controls()
@@ -963,13 +1015,22 @@ class MiniPlayer:
 
         # Borderless, rounded corners, always on top
         root.overrideredirect(True)
+        root.title("Spotify Mini Player")   # shown on the taskbar button
+        for icon_file in ("icon.ico", os.path.join("assets", "icon.ico")):
+            try:
+                root.iconbitmap(resource_path(icon_file))   # taskbar / Alt+Tab icon
+                break
+            except Exception:
+                continue
         self.topmost_var = tk.BooleanVar(value=bool(cfg.get("topmost", True)))
+        self.taskbar_var = tk.BooleanVar(value=bool(cfg.get("taskbar", True)))
         self.lyrics_var = tk.BooleanVar(value=bool(cfg.get("lyrics", True)))
         self.compact_var = tk.BooleanVar(value=bool(cfg.get("compact", False)))
         self.auto_var = tk.BooleanVar(value=bool(cfg.get("auto_accent", True)))
         self.lyrics_on = bool(self.lyrics_var.get())
         self.compact = bool(self.compact_var.get())
         self.auto_accent = bool(self.auto_var.get())
+        self.taskbar_on = bool(self.taskbar_var.get())
         root.attributes("-topmost", self.topmost_var.get())
         root.configure(bg=KEY)
         try:
@@ -1087,6 +1148,7 @@ class MiniPlayer:
         self.apply_theme()
         self.bind_events()
         self.frame()
+        root.after(80, self.apply_taskbar)   # once the window exists
 
     # -- Layout / scaling -------------------------------------------------------
     def S(self, v):
@@ -1412,10 +1474,14 @@ class MiniPlayer:
         cv.bind("<Double-Button-1>", self.on_double)
         cv.bind("<MouseWheel>", self.on_scroll)
         cv.bind("<Control-MouseWheel>", self.on_zoom)
+        self.root.bind("<Unmap>", self.on_unmap)
+        self.root.protocol("WM_DELETE_WINDOW", self.quit_app)   # e.g. "Close window" on the taskbar button
 
         self.menu = tk.Menu(self.root, tearoff=0)
         self.menu.add_checkbutton(label="Always on top", variable=self.topmost_var,
                                   command=self.apply_topmost)
+        self.menu.add_checkbutton(label="Show in taskbar", variable=self.taskbar_var,
+                                  command=self.on_taskbar_toggle)
         self.menu.add_checkbutton(label="Compact mode", variable=self.compact_var,
                                   command=self.on_compact_toggle)
         self.menu.add_checkbutton(label="Show lyrics", variable=self.lyrics_var,
@@ -1593,6 +1659,40 @@ class MiniPlayer:
         self.root.attributes("-topmost", self.topmost_var.get())
         self.schedule_save()
 
+    # -- Taskbar button -----------------------------------------------------------
+    def apply_taskbar(self):
+        """Applies the taskbar setting. The window is hidden for a moment so Windows re-reads its style."""
+        if not set_taskbar_style(self.root, self.taskbar_on):
+            return   # not Windows, or the style couldn't be changed
+        self.root.withdraw()
+        self.root.after(30, self.reshow)
+
+    def reshow(self):
+        try:
+            self.root.deiconify()
+            self.root.attributes("-topmost", bool(self.topmost_var.get()))
+        except tk.TclError:
+            pass
+
+    def on_taskbar_toggle(self):
+        self.taskbar_on = bool(self.taskbar_var.get())
+        self.apply_taskbar()
+        self.schedule_save()
+
+    def on_unmap(self, event):
+        """A borderless window can get stuck minimized (e.g. via its taskbar button): bring it back."""
+        if event.widget is not self.root or not self.taskbar_on:
+            return
+        self.root.after(120, self.restore_if_iconic)
+
+    def restore_if_iconic(self):
+        try:
+            if self.root.state() == "iconic":
+                self.root.deiconify()
+                self.root.attributes("-topmost", bool(self.topmost_var.get()))
+        except tk.TclError:
+            pass
+
     def open_settings(self):
         if self.settings is not None:
             try:
@@ -1632,7 +1732,7 @@ class MiniPlayer:
                       "font": self.font_family, "lyrics": self.lyrics_on,
                       "compact": self.compact, "auto_accent": self.auto_accent,
                       "x": self.pos_x, "y": self.pos_y,
-                      "topmost": bool(self.topmost_var.get())})
+                      "topmost": bool(self.topmost_var.get()), "taskbar": self.taskbar_on})
 
     # -- Frame loop (~30 FPS) ---------------------------------------------------
     def frame(self):
@@ -2074,6 +2174,7 @@ class MiniPlayer:
 
 
 if __name__ == "__main__":
+    set_app_id()
     root = tk.Tk()
     MiniPlayer(root, MediaBackend())
     root.mainloop()
