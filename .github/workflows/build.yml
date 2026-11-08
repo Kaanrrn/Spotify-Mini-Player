@@ -32,6 +32,7 @@
              --collect-submodules winsdk
              --collect-submodules pycaw
              --collect-submodules comtypes
+             --collect-submodules pystray
              --name SpotifyMiniPlayer mini_player.py
 
          - uses: actions/upload-artifact@v4
