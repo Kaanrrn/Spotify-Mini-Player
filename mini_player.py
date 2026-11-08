@@ -12,11 +12,14 @@ Usage:
   - Click or drag on the progress bar to seek.
   - Mouse wheel over the window: volume. Ctrl + mouse wheel: resize.
   - Double-click an empty area: switch between full and compact mode.
-  - Gear icon (top right): themes, colors, size, opacity, font, lyrics, taskbar button.
+  - Gear icon (top right): themes, colors, size, opacity, font, lyrics, taskbar button,
+    tray icon, start with Windows.
+  - Tray icon (bottom right): click to show / hide, right-click for the menu.
   - Right-click: menu.
 
 Synced lyrics are fetched from LRCLIB (https://lrclib.net), not from Spotify.
 Volume uses the optional "pycaw" package (Spotify's volume, or the system volume).
+The tray icon uses the optional "pystray" package.
 Settings are stored in %APPDATA%\\SpotifyMiniPlayer\\config.json
 """
 
@@ -27,6 +30,7 @@ import io
 import json
 import math
 import os
+import queue
 import re
 import sys
 import threading
@@ -40,6 +44,12 @@ from datetime import datetime, timezone
 from tkinter import ttk
 
 from PIL import Image, ImageTk
+
+try:
+    import pystray   # optional: system tray icon
+except Exception:
+    pystray = None
+
 from winsdk.windows.media.control import (
     GlobalSystemMediaTransportControlsSessionManager as MediaManager,
     GlobalSystemMediaTransportControlsSessionPlaybackStatus as PlaybackStatus,
@@ -129,7 +139,7 @@ CONFIG_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"),
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 LRCLIB = "https://lrclib.net/api"
-USER_AGENT = "SpotifyMiniPlayer/1.6 (https://github.com/kaanrrn/Spotify-Mini-Player)"
+USER_AGENT = "SpotifyMiniPlayer/1.7 (https://github.com/kaanrrn/Spotify-Mini-Player)"
 
 
 # ----------------------------------------------------------------------------
@@ -304,6 +314,139 @@ def set_taskbar_style(root, show):
         return True
     except Exception:
         return False
+
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+APPROVED_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+RUN_NAME = "SpotifyMiniPlayer"
+
+
+def startup_command():
+    """The command line Windows should run at login for this app."""
+    if getattr(sys, "frozen", False):          # the PyInstaller exe
+        return '"%s"' % sys.executable
+    exe = sys.executable                        # running from source: use pythonw (no console)
+    pyw = os.path.join(os.path.dirname(exe), "pythonw.exe")
+    if os.path.exists(pyw):
+        exe = pyw
+    return '"%s" "%s"' % (exe, os.path.abspath(__file__))
+
+
+def startup_registered():
+    """The command currently registered to run at login, or None."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ) as key:
+            return str(winreg.QueryValueEx(key, RUN_NAME)[0])
+    except Exception:
+        return None
+
+
+def set_startup(enabled, clear_disabled=True):
+    """Adds / removes the app from Windows' startup apps (HKCU Run). Returns True on success."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+            if enabled:
+                winreg.SetValueEx(key, RUN_NAME, 0, winreg.REG_SZ, startup_command())
+            else:
+                try:
+                    winreg.DeleteValue(key, RUN_NAME)
+                except FileNotFoundError:
+                    pass
+        if enabled and clear_disabled:
+            # If it was switched off in Task Manager before, clear that flag so it works again.
+            try:
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, APPROVED_KEY, 0, winreg.KEY_SET_VALUE) as key:
+                    winreg.DeleteValue(key, RUN_NAME)
+            except OSError:
+                pass
+        return True
+    except Exception:
+        return False
+
+
+def refresh_startup_path():
+    """If the exe was moved, point the startup entry at its current location (exe only)."""
+    reg = startup_registered()
+    if reg is not None and getattr(sys, "frozen", False) and reg != startup_command():
+        set_startup(True, clear_disabled=False)   # keep whatever the user chose in Task Manager
+
+
+class TrayIcon:
+    """System tray (notification area) icon, powered by the optional "pystray" package.
+
+    pystray runs in its own thread, so menu clicks are only put into a queue; the Tk thread
+    handles them (Tk must not be touched from other threads).
+    """
+
+    def __init__(self, put_action, is_checked):
+        self.put = put_action
+        self.is_checked = is_checked
+        self.icon = None
+
+    @property
+    def available(self):
+        return pystray is not None
+
+    def _image(self):
+        for rel in ("icon.ico", os.path.join("assets", "icon.ico")):
+            try:
+                img = Image.open(resource_path(rel))
+                try:
+                    img.size = (32, 32)         # pick the 32 px entry of the .ico
+                except Exception:
+                    pass
+                img.load()
+                img = img.convert("RGBA")
+                if img.size != (32, 32):
+                    img = img.resize((32, 32), Image.LANCZOS)
+                return img
+            except Exception:
+                continue
+        return Image.new("RGBA", (32, 32), (109, 247, 193, 255))
+
+    def start(self):
+        if pystray is None or self.icon is not None:
+            return
+        item = pystray.MenuItem
+
+        def act(name):
+            return lambda icon, it: self.put(name)
+
+        menu = pystray.Menu(
+            item("Show / hide", act("toggle"), default=True),   # left click
+            item("Settings…", act("settings")),
+            pystray.Menu.SEPARATOR,
+            item("Always on top", act("topmost"), checked=lambda it: self.is_checked("topmost")),
+            item("Compact mode", act("compact"), checked=lambda it: self.is_checked("compact")),
+            pystray.Menu.SEPARATOR,
+            item("Quit", act("quit")),
+        )
+        try:
+            self.icon = pystray.Icon("SpotifyMiniPlayer", self._image(), "Spotify Mini Player", menu)
+            self.icon.run_detached()
+        except Exception:
+            self.icon = None
+
+    def refresh(self):
+        if self.icon is not None:
+            try:
+                self.icon.update_menu()
+            except Exception:
+                pass
+
+    def stop(self):
+        icon, self.icon = self.icon, None
+        if icon is not None:
+            try:
+                icon.stop()
+            except Exception:
+                pass
 
 
 def load_config():
@@ -859,6 +1002,18 @@ class SettingsWindow:
                            selectcolor=self.FIELD, activebackground=self.BG,
                            activeforeground=self.FG, anchor="w")\
                 .pack(fill="x", padx=14)
+        tray_ok = p.tray.available
+        tk.Checkbutton(tab, text="Show tray icon" + ("" if tray_ok else " (needs the pystray package)"),
+                       variable=p.tray_var, command=p.on_tray_toggle,
+                       state="normal" if tray_ok else "disabled", bg=self.BG, fg=self.FG,
+                       selectcolor=self.FIELD, activebackground=self.BG,
+                       activeforeground=self.FG, anchor="w")\
+            .pack(fill="x", padx=14)
+        tk.Checkbutton(tab, text="Start with Windows", variable=p.startup_var,
+                       command=p.on_startup_toggle, bg=self.BG, fg=self.FG,
+                       selectcolor=self.FIELD, activebackground=self.BG,
+                       activeforeground=self.FG, anchor="w")\
+            .pack(fill="x", padx=14)
         tk.Label(tab, text="Tips: mouse wheel = volume, Ctrl + wheel = resize.",
                  bg=self.BG, fg="#8a8a8a", font=("Segoe UI", 8), anchor="w")\
             .pack(fill="x", padx=16, pady=(6, 0))
@@ -973,6 +1128,8 @@ class SettingsWindow:
         p.compact_var.set(False)
         p.taskbar_var.set(True)
         p.on_taskbar_toggle()
+        p.tray_var.set(True)          # (start with Windows is a system change: "Reset all" leaves it alone)
+        p.on_tray_toggle()
         p.on_auto_accent_toggle()
         p.apply_modes()
         self.sync_window_controls()
@@ -1024,6 +1181,8 @@ class MiniPlayer:
                 continue
         self.topmost_var = tk.BooleanVar(value=bool(cfg.get("topmost", True)))
         self.taskbar_var = tk.BooleanVar(value=bool(cfg.get("taskbar", True)))
+        self.tray_var = tk.BooleanVar(value=bool(cfg.get("tray", True)))
+        self.startup_var = tk.BooleanVar(value=startup_registered() is not None)
         self.lyrics_var = tk.BooleanVar(value=bool(cfg.get("lyrics", True)))
         self.compact_var = tk.BooleanVar(value=bool(cfg.get("compact", False)))
         self.auto_var = tk.BooleanVar(value=bool(cfg.get("auto_accent", True)))
@@ -1031,6 +1190,7 @@ class MiniPlayer:
         self.compact = bool(self.compact_var.get())
         self.auto_accent = bool(self.auto_var.get())
         self.taskbar_on = bool(self.taskbar_var.get())
+        self.tray_on = bool(self.tray_var.get())
         root.attributes("-topmost", self.topmost_var.get())
         root.configure(bg=KEY)
         try:
@@ -1147,6 +1307,13 @@ class MiniPlayer:
         self.build()
         self.apply_theme()
         self.bind_events()
+        self.tray_queue = queue.Queue()
+        self.tray_state = {}
+        self.tray = TrayIcon(self.tray_queue.put, lambda name: bool(self.tray_state.get(name)))
+        self.sync_tray_state()
+        self.apply_tray()
+        if getattr(sys, "frozen", False):
+            refresh_startup_path()
         self.frame()
         root.after(80, self.apply_taskbar)   # once the window exists
 
@@ -1191,6 +1358,7 @@ class MiniPlayer:
         self.lyrics_on = bool(self.lyrics_var.get())
         self.compact = bool(self.compact_var.get())
         self.relayout()
+        self.sync_tray_state()
         self.schedule_save()
 
     def on_lyrics_toggle(self):
@@ -1657,6 +1825,7 @@ class MiniPlayer:
 
     def apply_topmost(self):
         self.root.attributes("-topmost", self.topmost_var.get())
+        self.sync_tray_state()
         self.schedule_save()
 
     # -- Taskbar button -----------------------------------------------------------
@@ -1693,6 +1862,78 @@ class MiniPlayer:
         except tk.TclError:
             pass
 
+    # -- Tray icon / startup ---------------------------------------------------------
+    def sync_tray_state(self):
+        """Copies the check-mark states into plain Python values the tray thread may read."""
+        self.tray_state = {"topmost": bool(self.topmost_var.get()), "compact": bool(self.compact)}
+        self.tray.refresh()
+
+    def apply_tray(self):
+        if self.tray_on and self.tray.available:
+            self.tray.start()
+        else:
+            self.tray.stop()
+
+    def on_tray_toggle(self):
+        self.tray_on = bool(self.tray_var.get())
+        self.apply_tray()
+        self.schedule_save()
+
+    def on_startup_toggle(self):
+        want = bool(self.startup_var.get())
+        if not set_startup(want):
+            self.startup_var.set(not want)   # couldn't change it: put the checkbox back
+
+    def window_hidden(self):
+        try:
+            return self.root.state() == "withdrawn"
+        except tk.TclError:
+            return False
+
+    def show_window(self):
+        try:
+            self.root.deiconify()
+            self.root.attributes("-topmost", bool(self.topmost_var.get()))
+            self.root.lift()
+        except tk.TclError:
+            pass
+
+    def hide_window(self):
+        try:
+            self.root.withdraw()
+        except tk.TclError:
+            pass
+
+    def process_tray(self):
+        """Runs the actions clicked in the tray menu (they are queued by the tray thread)."""
+        while True:
+            try:
+                name = self.tray_queue.get_nowait()
+            except queue.Empty:
+                return
+            self.handle_tray(name)
+
+    def handle_tray(self, name):
+        if name == "toggle":
+            if self.window_hidden():
+                self.show_window()
+            else:
+                self.hide_window()
+        elif name == "settings":
+            self.show_window()
+            self.open_settings()
+        elif name == "topmost":
+            self.topmost_var.set(not self.topmost_var.get())
+            self.apply_topmost()
+        elif name == "compact":
+            self.compact_var.set(not self.compact_var.get())
+            self.on_compact_toggle()
+        elif name == "quit":
+            self.quit_app()
+
+    def shutdown(self):
+        self.tray.stop()
+
     def open_settings(self):
         if self.settings is not None:
             try:
@@ -1705,6 +1946,7 @@ class MiniPlayer:
 
     def quit_app(self):
         self.save_config()
+        self.shutdown()
         self.root.destroy()
 
     # -- Theme / settings persistence ------------------------------------------
@@ -1732,7 +1974,8 @@ class MiniPlayer:
                       "font": self.font_family, "lyrics": self.lyrics_on,
                       "compact": self.compact, "auto_accent": self.auto_accent,
                       "x": self.pos_x, "y": self.pos_y,
-                      "topmost": bool(self.topmost_var.get()), "taskbar": self.taskbar_on})
+                      "topmost": bool(self.topmost_var.get()), "taskbar": self.taskbar_on,
+                      "tray": self.tray_on})
 
     # -- Frame loop (~30 FPS) ---------------------------------------------------
     def frame(self):
@@ -1740,6 +1983,7 @@ class MiniPlayer:
             now = time.time()
             st = self.backend.state
             self.intro(now)
+            self.process_tray()
             self.sync_track(st, now)
             self.update_accent()
             self.nudge *= 0.84
@@ -2176,5 +2420,8 @@ class MiniPlayer:
 if __name__ == "__main__":
     set_app_id()
     root = tk.Tk()
-    MiniPlayer(root, MediaBackend())
-    root.mainloop()
+    player = MiniPlayer(root, MediaBackend())
+    try:
+        root.mainloop()
+    finally:
+        player.shutdown()   # stops the tray thread so the process can exit

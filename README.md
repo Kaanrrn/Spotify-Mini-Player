@@ -27,7 +27,9 @@ No Spotify API, Premium account or Client ID is required. The app connects to Wi
 - Settings via the gear icon in the top right: preset themes, full color customization with HEX / RGB / a color picker, window size (60%-200%), opacity, font picker, lyrics and compact mode toggles
 - Ctrl + mouse wheel resizes the window quickly
 - Taskbar button: shown by default (with the app icon); turn it off in the settings (Window tab) or from the right-click menu
-- Theme, size, opacity, font, modes, window position, taskbar and "always on top" are remembered (`%APPDATA%\SpotifyMiniPlayer\config.json`)
+- Tray icon (bottom right): click to show / hide the widget, right-click for a menu (settings, always on top, compact mode, quit)
+- Start with Windows: optional, one checkbox in the settings; it appears in Task Manager's Startup apps list
+- Theme, size, opacity, font, modes, window position, taskbar, tray icon and "always on top" are remembered (`%APPDATA%\SpotifyMiniPlayer\config.json`)
 - Works with free Spotify accounts
 
 ## Usage
@@ -57,6 +59,8 @@ The output is created at `dist/SpotifyMiniPlayer.exe`. When a tag in the form `v
 
 ## Limitations
 
+- Windows puts new tray icons in the hidden-icons flyout (the small arrow). Drag the icon onto the taskbar to keep it always visible. The tray icon and its menu use the `pystray` package; if it isn't installed the tray option is disabled.
+- "Start with Windows" is off by default. It registers the exe for the current user only, and you can turn it off here or in Task Manager. If you move the exe, run it once and the startup entry is updated.
 - The widget is meant to stay visible, so clicking its taskbar button does not minimize it (it restores itself right away). To close it, use the right-click menu or the taskbar button's "Close window". To hide the taskbar button completely, turn off "Show in taskbar" in the settings.
 - The volume slider controls Spotify's own volume (or the system volume if Spotify isn't playing) and uses the `pycaw` package. If it isn't installed or there is no audio device, the slider is hidden and the rest of the app keeps working.
 - Lyrics come from LRCLIB, an open lyrics service, not from Spotify. Not every song has synced lyrics, and the timing may differ from Spotify's own lyrics. An internet connection is needed to fetch them.
