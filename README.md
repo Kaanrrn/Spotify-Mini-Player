@@ -19,6 +19,7 @@ No Spotify API, Premium account or Client ID is required. The app connects to Wi
 - HUD-style rounded horizontal window: album cover on the left, title and artist next to it, a progress bar with elapsed / remaining time below
 - Click and hold on the progress bar and drag to any minute and second to seek
 - Synced lyrics under the progress bar: they scroll line by line, the current line is highlighted and animated (powered by [LRCLIB](https://lrclib.net))
+- Word-by-word lyric highlight: the current line lights up one word at a time (each word fades from gray to white as it is sung); can be switched off in the settings
 - Auto accent color from the album cover: the progress bar, equalizer and ripple effect smoothly change to the cover's color for every song
 - Volume: a slider appears at the top when you hover; drag it or use the mouse wheel
 - Compact mode: double-click an empty spot to shrink the player to a small strip with just the cover, the title and a thin progress line
@@ -59,6 +60,7 @@ The output is created at `dist/SpotifyMiniPlayer.exe`. When a tag in the form `v
 
 ## Limitations
 
+- Lyrics services (including LRCLIB) only provide the start time of each line, so the word-by-word highlight estimates each word's timing from the line's length. It can be a little early or late on very fast or slow lines. Very long lines are shrunk to fit, and shortened with "…" if they still don't.
 - Windows puts new tray icons in the hidden-icons flyout (the small arrow). Drag the icon onto the taskbar to keep it always visible. The tray icon and its menu use the `pystray` package; if it isn't installed the tray option is disabled.
 - "Start with Windows" is off by default. It registers the exe for the current user only, and you can turn it off here or in Task Manager. If you move the exe, run it once and the startup entry is updated.
 - The widget is meant to stay visible, so clicking its taskbar button does not minimize it (it restores itself right away). To close it, use the right-click menu or the taskbar button's "Close window". To hide the taskbar button completely, turn off "Show in taskbar" in the settings.

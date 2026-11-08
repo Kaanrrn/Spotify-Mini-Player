@@ -17,7 +17,8 @@ Usage:
   - Tray icon (bottom right): click to show / hide, right-click for the menu.
   - Right-click: menu.
 
-Synced lyrics are fetched from LRCLIB (https://lrclib.net), not from Spotify.
+Synced lyrics are fetched from LRCLIB (https://lrclib.net), not from Spotify. LRCLIB only has
+line timestamps, so the word-by-word highlight estimates each word's timing.
 Volume uses the optional "pycaw" package (Spotify's volume, or the system volume).
 The tray icon uses the optional "pystray" package.
 Settings are stored in %APPDATA%\\SpotifyMiniPlayer\\config.json
@@ -65,6 +66,7 @@ W0, H0 = 430, 110            # full mode: player part
 LYR_TOP0, LYR_H0 = 108, 102  # lyrics panel (below the player part)
 LYR_LH = 26                  # lyric line spacing
 LYR_SLOTS = 7
+LYR_WORDS = 32                # max words drawn one by one in the current line
 LYRIC_LEAD_MS = 300          # show lines slightly early so they are readable
 
 CW0, CH0 = 260, 56           # compact mode
@@ -139,7 +141,7 @@ CONFIG_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"),
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 LRCLIB = "https://lrclib.net/api"
-USER_AGENT = "SpotifyMiniPlayer/1.7 (https://github.com/kaanrrn/Spotify-Mini-Player)"
+USER_AGENT = "SpotifyMiniPlayer/1.8 (https://github.com/kaanrrn/Spotify-Mini-Player)"
 
 
 # ----------------------------------------------------------------------------
@@ -472,6 +474,7 @@ def write_config(data):
 # ----------------------------------------------------------------------------
 _LRC_LINE = re.compile(r"^((?:\s*\[\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?\])+)\s*(.*)$")
 _LRC_STAMP = re.compile(r"\[(\d{1,3}):(\d{1,2}(?:[.:]\d{1,3})?)\]")
+_LRC_WORD_TAG = re.compile(r"<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>")
 
 
 def parse_lrc(text):
@@ -481,7 +484,7 @@ def parse_lrc(text):
         m = _LRC_LINE.match(raw)
         if not m:
             continue
-        body = m.group(2).strip() or "♪"
+        body = " ".join(_LRC_WORD_TAG.sub("", m.group(2)).split()) or "♪"
         for mins, secs in _LRC_STAMP.findall(m.group(1)):
             ms = int((int(mins) * 60 + float(secs.replace(":", "."))) * 1000)
             out.append((ms, body))
@@ -995,6 +998,7 @@ class SettingsWindow:
         for text, var, cmd in (
             ("Compact mode (double-click the player)", p.compact_var, p.on_compact_toggle),
             ("Show synced lyrics (from LRCLIB)", p.lyrics_var, p.on_lyrics_toggle),
+            ("Highlight lyrics word by word (estimated)", p.words_var, p.on_words_toggle),
             ("Always on top", p.topmost_var, p.apply_topmost),
             ("Show in taskbar", p.taskbar_var, p.on_taskbar_toggle),
         ):
@@ -1126,6 +1130,8 @@ class SettingsWindow:
         p.auto_var.set(True)
         p.lyrics_var.set(True)
         p.compact_var.set(False)
+        p.words_var.set(True)
+        p.on_words_toggle()
         p.taskbar_var.set(True)
         p.on_taskbar_toggle()
         p.tray_var.set(True)          # (start with Windows is a system change: "Reset all" leaves it alone)
@@ -1186,9 +1192,11 @@ class MiniPlayer:
         self.lyrics_var = tk.BooleanVar(value=bool(cfg.get("lyrics", True)))
         self.compact_var = tk.BooleanVar(value=bool(cfg.get("compact", False)))
         self.auto_var = tk.BooleanVar(value=bool(cfg.get("auto_accent", True)))
+        self.words_var = tk.BooleanVar(value=bool(cfg.get("lyrics_words", True)))
         self.lyrics_on = bool(self.lyrics_var.get())
         self.compact = bool(self.compact_var.get())
         self.auto_accent = bool(self.auto_var.get())
+        self.words_on = bool(self.words_var.get())
         self.taskbar_on = bool(self.taskbar_var.get())
         self.tray_on = bool(self.tray_var.get())
         root.attributes("-topmost", self.topmost_var.get())
@@ -1215,12 +1223,18 @@ class MiniPlayer:
         self.f_logo_note = tkfont.Font(family=fam, size=-21)
         self.f_lyr = tkfont.Font(family=fam, size=-14)
         self.f_lyr_cur = tkfont.Font(family=fam, size=-16, weight="bold")
+        # smaller bold sizes, tried in order when the current line is too wide
+        self.f_lyr_cur2 = tkfont.Font(family=fam, size=-14, weight="bold")
+        self.f_lyr_cur3 = tkfont.Font(family=fam, size=-13, weight="bold")
+        self.f_lyr_cur4 = tkfont.Font(family=fam, size=-11, weight="bold")
+        self.f_lyr_fit = [self.f_lyr_cur, self.f_lyr_cur2, self.f_lyr_cur3, self.f_lyr_cur4]
         self.f_lyr_msg = tkfont.Font(family=fam, size=-13)
         self.f_compact = tkfont.Font(family=fam, size=-14, weight="bold")
         self.font_specs = [(self.f_label, 12), (self.f_title, 16), (self.f_artist, 13),
                            (self.f_time, 12), (self.f_cover_note, 29), (self.f_cover_note_c, 17),
                            (self.f_logo_note, 21), (self.f_lyr, 14), (self.f_lyr_cur, 16),
-                           (self.f_lyr_msg, 13), (self.f_compact, 14)]
+                           (self.f_lyr_msg, 13), (self.f_compact, 14),
+                           (self.f_lyr_cur2, 14), (self.f_lyr_cur3, 13), (self.f_lyr_cur4, 11)]
         self.compute_layout()
 
         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
@@ -1302,6 +1316,8 @@ class MiniPlayer:
         self.lyr_fit = []
         self.lyr_pos = -1.0
         self.slot_cache = []
+        self.word_cache = {}
+        self.word_slot_cache = []
         self.lyr_msg_cache = None
 
         self.build()
@@ -1363,6 +1379,10 @@ class MiniPlayer:
 
     def on_lyrics_toggle(self):
         self.apply_modes()
+
+    def on_words_toggle(self):
+        self.words_on = bool(self.words_var.get())
+        self.schedule_save()
 
     def on_compact_toggle(self):
         self.apply_modes()
@@ -1440,6 +1460,7 @@ class MiniPlayer:
         self.icon_items = []
         self.text_items = []
         self.lyr_slots = []
+        self.lyr_words = []
         self.vol_waves = []
         self.vol_items = []
 
@@ -1450,6 +1471,7 @@ class MiniPlayer:
         else:
             self.build_full()
         self.slot_cache = ["hidden"] * len(self.lyr_slots)
+        self.word_slot_cache = ["hidden"] * len(self.lyr_words)
 
     def build_cover(self):
         cv, S = self.cv, self.S
@@ -1557,6 +1579,8 @@ class MiniPlayer:
             self.lyr_div = cv.create_line(S(16), S(LYR_TOP0 - 2), W - S(16), S(LYR_TOP0 - 2), width=1)
             self.lyr_slots = [cv.create_text(W / 2, 0, text="", font=self.f_lyr, state="hidden")
                               for _ in range(LYR_SLOTS)]
+            self.lyr_words = [cv.create_text(0, 0, text="", anchor="w", font=self.f_lyr_cur,
+                                             state="hidden") for _ in range(LYR_WORDS)]
             self.t_lyr_msg = cv.create_text(W / 2, S(LYR_TOP0 + LYR_H0 / 2), text="",
                                             font=self.f_lyr_msg, state="hidden")
 
@@ -1590,6 +1614,7 @@ class MiniPlayer:
         self.cfg(self.gear_hole, fill=bg)
         self.cfg(self.lyr_div, fill=mix(bg, t["text2"], 0.18))
         self.slot_cache = [None] * len(self.lyr_slots)
+        self.word_slot_cache = [None] * len(self.lyr_words)
         self.lyr_msg_cache = None
         self.texts_settled = False
         self.icon_dirty = True
@@ -1971,7 +1996,7 @@ class MiniPlayer:
     def save_config(self):
         self.save_job = None
         write_config({"theme": self.theme, "scale": self.scale, "opacity": self.opacity,
-                      "font": self.font_family, "lyrics": self.lyrics_on,
+                      "font": self.font_family, "lyrics": self.lyrics_on, "lyrics_words": self.words_on,
                       "compact": self.compact, "auto_accent": self.auto_accent,
                       "x": self.pos_x, "y": self.pos_y,
                       "topmost": bool(self.topmost_var.get()), "taskbar": self.taskbar_on,
@@ -2231,6 +2256,8 @@ class MiniPlayer:
         for _, text in self.lyr_lines:
             self.lyr_fit.append((fit(self.f_lyr_cur, text, maxw), fit(self.f_lyr, text, maxw)))
         self.slot_cache = ["hidden"] * len(self.lyr_slots)
+        self.word_cache = {}
+        self.word_slot_cache = ["hidden"] * len(self.lyr_words)
 
     def lyric_message(self, status, now):
         if status == "loading":
@@ -2262,6 +2289,100 @@ class MiniPlayer:
             if self.slot_cache[k] != "hidden":
                 self.cv.itemconfig(item, state="hidden")
                 self.slot_cache[k] = "hidden"
+        self.hide_words()
+
+    def hide_words(self):
+        for k, item in enumerate(self.lyr_words):
+            if self.word_slot_cache[k] != "hidden":
+                self.cv.itemconfig(item, state="hidden")
+                self.word_slot_cache[k] = "hidden"
+
+    def word_times(self, li, words):
+        """Estimated (start, end) in ms for every word of a line.
+
+        LRCLIB only gives the start time of each line, so the line's singing time is guessed
+        from its length (capped by the gap to the next line) and shared between the words in
+        proportion to their length.
+        """
+        start = self.lyr_times[li]
+        nxt = self.lyr_times[li + 1] if li + 1 < len(self.lyr_times) else start + 6000
+        avail = max(nxt - start, 200)
+        chars = sum(len(w) for w in words) + len(words) - 1
+        sing = min(avail * 0.92, max(600.0, chars * 80.0))
+        weights = [len(w) + 1.0 for w in words]
+        total = sum(weights)
+        out, acc = [], 0.0
+        for w in weights:
+            t0 = start + sing * acc / total
+            acc += w
+            out.append((t0, start + sing * acc / total))
+        return out
+
+    def word_layout(self, li):
+        """Where each word of the current line goes (and when it lights up). Cached per line."""
+        cached = self.word_cache.get(li)
+        if cached is not None:
+            return cached
+        words = self.lyr_lines[li][1].split() or ["♪"]
+        times = self.word_times(li, words)
+        maxw = self.S(W0 - 36)
+        chosen, widths, space = 0, [], 0
+        for chosen, font in enumerate(self.f_lyr_fit):     # shrink the line until it fits
+            widths = [font.measure(w) for w in words]
+            space = font.measure(" ")
+            if sum(widths) + space * (len(words) - 1) <= maxw:
+                break
+        font = self.f_lyr_fit[chosen]
+        items, x = [], 0.0
+        if sum(widths) + space * (len(words) - 1) <= maxw and len(words) <= LYR_WORDS:
+            for w, wd, (t0, t1) in zip(words, widths, times):
+                items.append((w, x, t0, t1))
+                x += wd + space
+            total = x - space
+        else:
+            # still too long at the smallest size: keep what fits and end with an ellipsis
+            ell = font.measure("…")
+            for w, wd, (t0, t1) in zip(words, widths, times):
+                if items and (len(items) >= LYR_WORDS - 1 or x + wd + ell > maxw):
+                    break
+                items.append((w, x, t0, t1))
+                x += wd + space
+            ex = max(x - space, 0.0)
+            items.append(("…", ex, times[-1][1], times[-1][1]))   # lights up when the line ends
+            total = ex + ell
+        layout = {"font": chosen, "items": items, "total": total}
+        self.word_cache[li] = layout
+        return layout
+
+    def draw_words(self, li, d, pos):
+        """Draws the current line word by word: each word fades from gray to white as it is sung."""
+        S, cv, t = self.S, self.cv, self.theme
+        lay = self.word_layout(li)
+        a = lyr_alpha(d)
+        bg, dim, lit = t["bg"], t["text2"], t["title"]
+        x0 = self.W / 2 - lay["total"] / 2
+        y = S(LYR_TOP0 + LYR_H0 / 2) + d * S(LYR_LH)
+        font = self.f_lyr_fit[lay["font"]]
+        items = lay["items"]
+        for k, item in enumerate(self.lyr_words):
+            if k < len(items):
+                text, x, t0, t1 = items[k]
+                if pos >= t1:
+                    p = 1.0
+                elif pos <= t0:
+                    p = 0.0
+                else:
+                    p = (pos - t0) / max(t1 - t0, 1.0)
+                lift = S(2.5) * math.sin(math.pi * p) if 0.0 < p < 1.0 else 0.0   # the word being sung hops up
+                color = mix(bg, mix(dim, lit, ease_out(p)), a)
+                cv.coords(item, x0 + x, y - lift)
+                new = (text, lay["font"], color)
+                if self.word_slot_cache[k] != new:
+                    cv.itemconfig(item, text=text, fill=color, font=font, state="normal")
+                    self.word_slot_cache[k] = new
+            elif self.word_slot_cache[k] != "hidden":
+                cv.itemconfig(item, state="hidden")
+                self.word_slot_cache[k] = "hidden"
 
     def update_lyrics(self, st, now):
         if not self.lyrics_on or not self.lyr_slots:
@@ -2304,11 +2425,17 @@ class MiniPlayer:
         lh = S(LYR_LH)
         cx = self.W / 2
         n = len(self.lyr_lines)
+
+        # The current line is drawn word by word (draw_words) instead of as one text item.
+        cur_li = int(round(self.lyr_pos))
+        words_line = (cur_li if self.words_on and self.lyr_words and 0 <= cur_li < n
+                      and abs(cur_li - self.lyr_pos) < 0.5 else None)
+
         for k, item in enumerate(self.lyr_slots):
             li = base + k
             d = li - self.lyr_pos
             a = lyr_alpha(d)
-            if 0 <= li < n and a > 0.02:
+            if 0 <= li < n and a > 0.02 and li != words_line:
                 cur = abs(d) < 0.5
                 text = self.lyr_fit[li][0 if cur else 1]
                 hl = clamp(1 - abs(d))
@@ -2322,6 +2449,11 @@ class MiniPlayer:
             elif self.slot_cache[k] != "hidden":
                 cv.itemconfig(item, state="hidden")
                 self.slot_cache[k] = "hidden"
+
+        if words_line is not None:
+            self.draw_words(words_line, words_line - self.lyr_pos, pos)
+        else:
+            self.hide_words()
 
     # -- Other animations ---------------------------------------------------------
     def update_eq(self, st, now):
